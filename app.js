@@ -410,19 +410,35 @@ let isRecording = false;
 
 function initSpeechRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { showToast('你的瀏覽器不支援語音輸入，請使用 Chrome 或 Edge'); return null; }
-  const rec = new SR();
-  rec.lang = 'zh-TW';
-  rec.interimResults = true;
-  rec.continuous = false;
-  rec.maxAlternatives = 1;
-  return rec;
+  if (!SR) return null;
+  try {
+    const rec = new SR();
+    rec.lang = 'zh-TW';
+    rec.interimResults = true;
+    rec.continuous = false;
+    rec.maxAlternatives = 1;
+    return rec;
+  } catch (e) {
+    console.error('Speech recognition init failed:', e);
+    return null;
+  }
 }
+
+// Pre-init for better gesture handling
+recognition = initSpeechRecognition();
 
 function startVoice(event) {
   if (event && event.preventDefault) event.preventDefault();
   if (isRecording) return;
-  if (!recognition) { recognition = initSpeechRecognition(); if (!recognition) return; }
+  
+  if (!recognition) {
+     recognition = initSpeechRecognition();
+     if (!recognition) {
+       showToast('你的瀏覽器不支援語音輸入，請使用 Chrome 或 Safari');
+       return;
+     }
+  }
+  
   isRecording = true;
   const btn = document.getElementById('voice-btn');
   const status = document.getElementById('voice-status');
@@ -445,7 +461,7 @@ function startVoice(event) {
     stopVoiceUI();
     const errorMap = {
       'not-allowed': '請允許麥克風權限以使用語音記帳',
-      'service-not-allowed': '瀏覽器不支援此服務 (請確認使用 HTTPS 或更換 Chrome/Safari)',
+      'service-not-allowed': '語音服務被阻擋 (請檢查：1.是否開啟聽寫功能 2.關閉無痕模式 3.HTTPS連線)',
       'network': '網路連線不穩定，語音辨識失敗',
       'no-speech': '沒聽到聲音，請再試一次'
     };
