@@ -5,7 +5,7 @@
 // ===== 設定 =====
 const SPREADSHEET_ID = '1RTKR8hpytQEsgCLKSN_0SHwajHrfjQHKai1cXp1kHSs';
 const DRIVE_FOLDER_ID = '1pDkCtedvNb-6GTR_gcVmVsu8v4agxDXU';
-const GEMINI_API_KEY = 'AIzaSyAUO2stOX8p8NIAxIFqlOjSfNvFEtZXS_Q';
+const GEMINI_API_KEY = '請在Google Apps Script線上編輯器中填入你的金鑰，不要推送到GitHub';
 const GEMINI_MODEL = 'gemini-1.5-flash';
 
 const SHEET_USERS = '使用者';
