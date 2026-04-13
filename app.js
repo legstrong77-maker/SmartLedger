@@ -443,8 +443,18 @@ function startVoice(event) {
   };
   recognition.onerror = (event) => {
     stopVoiceUI();
-    if (event.error === 'not-allowed') showToast('請允許麥克風權限');
-    else if (event.error !== 'aborted') showToast('語音辨識錯誤: ' + event.error);
+    const errorMap = {
+      'not-allowed': '請允許麥克風權限以使用語音記帳',
+      'service-not-allowed': '瀏覽器不支援此服務 (請確認使用 HTTPS 或更換 Chrome/Safari)',
+      'network': '網路連線不穩定，語音辨識失敗',
+      'no-speech': '沒聽到聲音，請再試一次'
+    };
+    const msg = errorMap[event.error] || '語音辨識錯誤: ' + event.error;
+    showToast(msg);
+    
+    if (window.location.protocol !== 'https:') {
+      showToast('⚠️ 語音功能需要 HTTPS 加密連線才能運作');
+    }
   };
   try { recognition.start(); } catch (err) { stopVoiceUI(); }
 }
