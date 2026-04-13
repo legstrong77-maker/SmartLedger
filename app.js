@@ -420,6 +420,11 @@ function initSpeechRecognition() {
   return rec;
 }
 
+function toggleVoice() {
+  if (isRecording) stopVoice();
+  else startVoice();
+}
+
 function startVoice() {
   if (isRecording) return;
   if (!recognition) { recognition = initSpeechRecognition(); if (!recognition) return; }
@@ -457,7 +462,7 @@ function stopVoice() {
 function stopVoiceUI() {
   isRecording = false;
   document.getElementById('voice-btn').classList.remove('recording');
-  document.getElementById('voice-status').textContent = '按住說話';
+  document.getElementById('voice-status').textContent = '點擊說話';
 }
 
 async function parseVoiceInput(text) {
