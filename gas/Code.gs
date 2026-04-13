@@ -1,17 +1,14 @@
 // ============================================================
-// 個人記帳軟體 — Google Apps Script 後端
+// 個人記帳軟體 — Google Apps Script 後端 (Per-User Sheets)
 // ============================================================
 
 // ===== 設定 =====
 const SPREADSHEET_ID = '1RTKR8hpytQEsgCLKSN_0SHwajHrfjQHKai1cXp1kHSs';
 const DRIVE_FOLDER_ID = '1pDkCtedvNb-6GTR_gcVmVsu8v4agxDXU';
-const GEMINI_API_KEY = 'AIzaSyB6Ca_wMge0YAyAf53IJdfXfYuG1jLPOgw';
+const GEMINI_API_KEY = '請在GAS線上編輯器填入金鑰';
 const GEMINI_MODEL = 'gemini-2.5-flash';
 
 const SHEET_USERS = '使用者';
-const SHEET_RECORDS = '記帳紀錄';
-const SHEET_CATEGORIES = '分類設定';
-const SHEET_SETTINGS = '系統設定';
 
 // ===== 預設分類 =====
 const DEFAULT_EXPENSE_CATEGORIES = [
@@ -33,6 +30,53 @@ const DEFAULT_INCOME_CATEGORIES = [
   { name: '利息', emoji: '🏦', color: '#2980B9', sort: 2 },
   { name: '其他收入', emoji: '💵', color: '#8E44AD', sort: 3 },
 ];
+
+// ===== Per-User Sheet 命名規則 =====
+// 每個用戶有 3 個專屬分頁：
+//   {userName}_記錄
+//   {userName}_分類
+//   {userName}_設定
+
+function getUserRecordSheet(userName) {
+  return getOrCreateSheet(userName + '_記錄', [
+    'id', 'userId', 'date', 'time', 'type', 'category',
+    'amount', 'currency', 'note', 'imageUrl', 'imageId',
+    'inputMethod', 'originalText', 'createdAt',
+  ]);
+}
+
+function getUserCategorySheet(userName) {
+  return getOrCreateSheet(userName + '_分類', [
+    'type', 'name', 'emoji', 'color', 'sort', 'enabled',
+  ]);
+}
+
+function getUserSettingSheet(userName) {
+  return getOrCreateSheet(userName + '_設定', [
+    'key', 'value',
+  ]);
+}
+
+function getOrCreateSheet(sheetName, headers) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    sheet.appendRow(headers);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+// 從 userId 反查 userName
+function getUserNameById(userId) {
+  const sheet = getSheet(SHEET_USERS);
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === userId) return data[i][1];
+  }
+  return null;
+}
 
 // ===== 路由 =====
 function doGet(e) {
@@ -143,66 +187,16 @@ function doPost(e) {
   );
 }
 
-// ===== 初始化 (手動執行一次) =====
+// ===== 初始化 (手動執行一次，只建使用者分頁) =====
 function initializeSheets() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-
-  // 使用者
   let sheet = ss.getSheetByName(SHEET_USERS);
   if (!sheet) {
     sheet = ss.insertSheet(SHEET_USERS);
     sheet.appendRow(['id', 'name', 'pin', 'createdAt']);
     sheet.setFrozenRows(1);
   }
-
-  // 記帳紀錄
-  sheet = ss.getSheetByName(SHEET_RECORDS);
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_RECORDS);
-    sheet.appendRow([
-      'id',
-      'userId',
-      'date',
-      'time',
-      'type',
-      'category',
-      'amount',
-      'currency',
-      'note',
-      'imageUrl',
-      'imageId',
-      'inputMethod',
-      'originalText',
-      'createdAt',
-    ]);
-    sheet.setFrozenRows(1);
-  }
-
-  // 分類設定
-  sheet = ss.getSheetByName(SHEET_CATEGORIES);
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_CATEGORIES);
-    sheet.appendRow([
-      'userId',
-      'type',
-      'name',
-      'emoji',
-      'color',
-      'sort',
-      'enabled',
-    ]);
-    sheet.setFrozenRows(1);
-  }
-
-  // 系統設定
-  sheet = ss.getSheetByName(SHEET_SETTINGS);
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_SETTINGS);
-    sheet.appendRow(['userId', 'key', 'value']);
-    sheet.setFrozenRows(1);
-  }
-
-  Logger.log('所有工作表初始化完成！');
+  Logger.log('使用者工作表初始化完成！');
 }
 
 // ===== 使用者管理 =====
@@ -249,11 +243,8 @@ function handleRegister(data) {
   const now = new Date().toISOString();
   sheet.appendRow([userId, name, hashedPin, now]);
 
-  // 建立預設分類
-  initDefaultCategories(userId);
-
-  // 建立預設設定
-  initDefaultSettings(userId);
+  // 建立使用者專屬分頁 + 預設分類 + 預設設定
+  initUserSheets(name, userId);
 
   return {
     success: true,
@@ -271,43 +262,40 @@ function getUsers() {
   return { success: true, users: users };
 }
 
-function initDefaultCategories(userId) {
-  const sheet = getSheet(SHEET_CATEGORIES);
-  const rows = [];
+// 註冊時：建立專屬分頁 + 寫入預設資料
+function initUserSheets(userName, userId) {
+  // 記錄分頁 (自動由 getOrCreateSheet 建立)
+  getUserRecordSheet(userName);
 
+  // 分類分頁 + 預設分類
+  const catSheet = getUserCategorySheet(userName);
+  const catRows = [];
   DEFAULT_EXPENSE_CATEGORIES.forEach(function (cat) {
-    rows.push([userId, 'expense', cat.name, cat.emoji, cat.color, cat.sort, true]);
+    catRows.push(['expense', cat.name, cat.emoji, cat.color, cat.sort, true]);
   });
   DEFAULT_INCOME_CATEGORIES.forEach(function (cat) {
-    rows.push([userId, 'income', cat.name, cat.emoji, cat.color, cat.sort, true]);
+    catRows.push(['income', cat.name, cat.emoji, cat.color, cat.sort, true]);
   });
-
-  if (rows.length > 0) {
-    sheet
-      .getRange(sheet.getLastRow() + 1, 1, rows.length, 7)
-      .setValues(rows);
+  if (catRows.length > 0) {
+    catSheet.getRange(catSheet.getLastRow() + 1, 1, catRows.length, 6).setValues(catRows);
   }
-}
 
-function initDefaultSettings(userId) {
-  const sheet = getSheet(SHEET_SETTINGS);
-  const defaults = [
-    [userId, 'defaultCurrency', 'TWD'],
-    [userId, 'enabledCurrencies', JSON.stringify(['TWD'])],
-    [
-      userId,
-      'budgets',
-      JSON.stringify({}),
-    ],
+  // 設定分頁 + 預設設定
+  const setSheet = getUserSettingSheet(userName);
+  const setRows = [
+    ['defaultCurrency', 'TWD'],
+    ['enabledCurrencies', JSON.stringify(['TWD'])],
+    ['budgets', JSON.stringify({})],
   ];
-  sheet
-    .getRange(sheet.getLastRow() + 1, 1, defaults.length, 3)
-    .setValues(defaults);
+  setSheet.getRange(setSheet.getLastRow() + 1, 1, setRows.length, 2).setValues(setRows);
 }
 
 // ===== 記帳 CRUD =====
 function addExpense(data) {
-  const sheet = getSheet(SHEET_RECORDS);
+  const userName = getUserNameById(data.userId);
+  if (!userName) return { error: '找不到用戶' };
+
+  const sheet = getUserRecordSheet(userName);
   const id = generateId();
   const now = new Date();
   const row = [
@@ -338,25 +326,25 @@ function getExpenses(params) {
   const userId = params.userId;
   if (!userId) return { error: '缺少 userId' };
 
-  const sheet = getSheet(SHEET_RECORDS);
+  const userName = getUserNameById(userId);
+  if (!userName) return { error: '找不到用戶' };
+
+  const sheet = getUserRecordSheet(userName);
   const data = sheet.getDataRange().getValues();
   const expenses = [];
 
-  const month = params.month || ''; // YYYY-MM
+  const month = params.month || '';
   const category = params.category || '';
   const type = params.type || '';
   const limit = parseInt(params.limit) || 0;
 
   for (let i = 1; i < data.length; i++) {
-    if (data[i][1] !== userId) continue;
     if (month && !formatCellDate(data[i][2]).startsWith(month)) continue;
     if (category && data[i][5] !== category) continue;
     if (type && data[i][4] !== type) continue;
-
     expenses.push(rowToExpense(data[i]));
   }
 
-  // 按日期降序
   expenses.sort(function (a, b) {
     return (b.date + b.time).localeCompare(a.date + a.time);
   });
@@ -368,24 +356,23 @@ function getExpenses(params) {
 }
 
 function updateExpense(data) {
-  const sheet = getSheet(SHEET_RECORDS);
+  const userName = getUserNameById(data.userId);
+  if (!userName) return { error: '找不到用戶' };
+
+  const sheet = getUserRecordSheet(userName);
   const allData = sheet.getDataRange().getValues();
 
   for (let i = 1; i < allData.length; i++) {
-    if (allData[i][0] === data.id && allData[i][1] === data.userId) {
+    if (allData[i][0] === data.id) {
       const row = i + 1;
       if (data.date !== undefined) sheet.getRange(row, 3).setValue(data.date);
       if (data.time !== undefined) sheet.getRange(row, 4).setValue(data.time);
       if (data.type !== undefined) sheet.getRange(row, 5).setValue(data.type);
-      if (data.category !== undefined)
-        sheet.getRange(row, 6).setValue(data.category);
-      if (data.amount !== undefined)
-        sheet.getRange(row, 7).setValue(parseFloat(data.amount));
-      if (data.currency !== undefined)
-        sheet.getRange(row, 8).setValue(data.currency);
+      if (data.category !== undefined) sheet.getRange(row, 6).setValue(data.category);
+      if (data.amount !== undefined) sheet.getRange(row, 7).setValue(parseFloat(data.amount));
+      if (data.currency !== undefined) sheet.getRange(row, 8).setValue(data.currency);
       if (data.note !== undefined) sheet.getRange(row, 9).setValue(data.note);
 
-      // 回傳更新後的資料
       const updated = sheet.getRange(row, 1, 1, 14).getValues()[0];
       return { success: true, expense: rowToExpense(updated) };
     }
@@ -394,11 +381,14 @@ function updateExpense(data) {
 }
 
 function deleteExpense(data) {
-  const sheet = getSheet(SHEET_RECORDS);
+  const userName = getUserNameById(data.userId);
+  if (!userName) return { error: '找不到用戶' };
+
+  const sheet = getUserRecordSheet(userName);
   const allData = sheet.getDataRange().getValues();
 
   for (let i = 1; i < allData.length; i++) {
-    if (allData[i][0] === data.id && allData[i][1] === data.userId) {
+    if (allData[i][0] === data.id) {
       sheet.deleteRow(i + 1);
       return { success: true };
     }
@@ -432,9 +422,7 @@ function formatCellDate(val) {
     return Utilities.formatDate(val, 'Asia/Taipei', 'yyyy-MM-dd');
   }
   var s = String(val);
-  // 已經是 YYYY-MM-DD 格式
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  // 嘗試解析其他格式
   try {
     var d = new Date(s);
     if (!isNaN(d.getTime())) {
@@ -451,9 +439,7 @@ function formatCellTime(val) {
     return Utilities.formatDate(val, 'Asia/Taipei', 'HH:mm');
   }
   var s = String(val);
-  // 已經是 HH:mm 格式
   if (/^\d{2}:\d{2}$/.test(s)) return s;
-  // 嘗試解析
   try {
     var d = new Date(s);
     if (!isNaN(d.getTime())) {
@@ -468,21 +454,22 @@ function getCategories(params) {
   const userId = params.userId;
   if (!userId) return { error: '缺少 userId' };
 
-  const sheet = getSheet(SHEET_CATEGORIES);
+  const userName = getUserNameById(userId);
+  if (!userName) return { error: '找不到用戶' };
+
+  const sheet = getUserCategorySheet(userName);
   const data = sheet.getDataRange().getValues();
   const categories = [];
 
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === userId) {
-      categories.push({
-        type: data[i][1],
-        name: data[i][2],
-        emoji: data[i][3],
-        color: data[i][4],
-        sort: data[i][5],
-        enabled: data[i][6] === true || data[i][6] === 'true' || data[i][6] === 'TRUE',
-      });
-    }
+    categories.push({
+      type: data[i][0],
+      name: data[i][1],
+      emoji: data[i][2],
+      color: data[i][3],
+      sort: data[i][4],
+      enabled: data[i][5] === true || data[i][5] === 'true' || data[i][5] === 'TRUE',
+    });
   }
 
   categories.sort(function (a, b) {
@@ -494,19 +481,20 @@ function getCategories(params) {
 }
 
 function addCategory(data) {
-  const sheet = getSheet(SHEET_CATEGORIES);
+  const userName = getUserNameById(data.userId);
+  if (!userName) return { error: '找不到用戶' };
+
+  const sheet = getUserCategorySheet(userName);
   const catData = sheet.getDataRange().getValues();
-  
-  // 計算最大排序值
+
   let maxSort = 0;
   for (let i = 1; i < catData.length; i++) {
-    if (catData[i][0] === data.userId && catData[i][1] === data.type) {
-      maxSort = Math.max(maxSort, catData[i][5] || 0);
+    if (catData[i][0] === data.type) {
+      maxSort = Math.max(maxSort, catData[i][4] || 0);
     }
   }
 
   sheet.appendRow([
-    data.userId,
     data.type || 'expense',
     data.name,
     data.emoji || '📌',
@@ -519,15 +507,14 @@ function addCategory(data) {
 }
 
 function deleteCategory(data) {
-  const sheet = getSheet(SHEET_CATEGORIES);
+  const userName = getUserNameById(data.userId);
+  if (!userName) return { error: '找不到用戶' };
+
+  const sheet = getUserCategorySheet(userName);
   const catData = sheet.getDataRange().getValues();
 
   for (let i = catData.length - 1; i >= 1; i--) {
-    if (
-      catData[i][0] === data.userId &&
-      catData[i][2] === data.name &&
-      catData[i][1] === data.type
-    ) {
+    if (catData[i][1] === data.name && catData[i][0] === data.type) {
       sheet.deleteRow(i + 1);
       return { success: true };
     }
@@ -536,21 +523,21 @@ function deleteCategory(data) {
 }
 
 function updateCategories(data) {
-  const sheet = getSheet(SHEET_CATEGORIES);
+  const userName = getUserNameById(data.userId);
+  if (!userName) return { error: '找不到用戶' };
+
+  const sheet = getUserCategorySheet(userName);
   const catData = sheet.getDataRange().getValues();
 
-  // 刪除該使用者的所有分類
-  for (let i = catData.length - 1; i >= 1; i--) {
-    if (catData[i][0] === data.userId) {
-      sheet.deleteRow(i + 1);
-    }
+  // 刪除所有分類 (保留 header)
+  if (catData.length > 1) {
+    sheet.deleteRows(2, catData.length - 1);
   }
 
   // 重新寫入
   const rows = [];
   (data.categories || []).forEach(function (cat) {
     rows.push([
-      data.userId,
       cat.type,
       cat.name,
       cat.emoji,
@@ -561,9 +548,7 @@ function updateCategories(data) {
   });
 
   if (rows.length > 0) {
-    sheet
-      .getRange(sheet.getLastRow() + 1, 1, rows.length, 7)
-      .setValues(rows);
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
   }
 
   return { success: true };
@@ -574,8 +559,11 @@ function getDashboard(params) {
   const userId = params.userId;
   if (!userId) return { error: '缺少 userId' };
 
+  const userName = getUserNameById(userId);
+  if (!userName) return { error: '找不到用戶' };
+
   const month = params.month || Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM');
-  const sheet = getSheet(SHEET_RECORDS);
+  const sheet = getUserRecordSheet(userName);
   const data = sheet.getDataRange().getValues();
 
   let totalExpense = 0;
@@ -588,7 +576,6 @@ function getDashboard(params) {
   const topExpenses = [];
 
   for (let i = 1; i < data.length; i++) {
-    if (data[i][1] !== userId) continue;
     const dateStr = formatCellDate(data[i][2]);
     if (!dateStr.startsWith(month)) continue;
 
@@ -598,37 +585,33 @@ function getDashboard(params) {
     const day = dateStr.length >= 10 ? dateStr.slice(8, 10) : '';
 
     count++;
-
     if (type === 'expense') {
       totalExpense += amount;
-      dailyExpense[day] = (dailyExpense[day] || 0) + amount;
+      if (day) dailyExpense[day] = (dailyExpense[day] || 0) + amount;
       categoryExpense[category] = (categoryExpense[category] || 0) + amount;
       topExpenses.push({
-        date: dateStr,
         category: category,
         amount: amount,
         note: data[i][8] || '',
+        date: dateStr,
       });
-    } else {
+    } else if (type === 'income') {
       totalIncome += amount;
-      dailyIncome[day] = (dailyIncome[day] || 0) + amount;
+      if (day) dailyIncome[day] = (dailyIncome[day] || 0) + amount;
       categoryIncome[category] = (categoryIncome[category] || 0) + amount;
     }
   }
 
-  // 排序 top expenses
-  topExpenses.sort(function (a, b) {
-    return b.amount - a.amount;
-  });
+  topExpenses.sort(function (a, b) { return b.amount - a.amount; });
 
-  // 取得預算
-  const settingsSheet = getSheet(SHEET_SETTINGS);
-  const settingsData = settingsSheet.getDataRange().getValues();
+  // 取得預算設定
   let budgets = {};
+  const setSheet = getUserSettingSheet(userName);
+  const settingsData = setSheet.getDataRange().getValues();
   for (let i = 1; i < settingsData.length; i++) {
-    if (settingsData[i][0] === userId && settingsData[i][1] === 'budgets') {
+    if (settingsData[i][0] === 'budgets') {
       try {
-        budgets = JSON.parse(settingsData[i][2]);
+        budgets = JSON.parse(settingsData[i][1]);
       } catch (e) {}
       break;
     }
@@ -658,7 +641,6 @@ function parseNaturalLanguage(data) {
   const userId = data.userId;
   if (!text) return { error: '請提供文字內容' };
 
-  // 取得該用戶的分類列表
   const cats = getCategories({ userId: userId });
   const expenseCats = (cats.categories || [])
     .filter(function (c) { return c.type === 'expense' && c.enabled; })
@@ -678,18 +660,14 @@ function parseNaturalLanguage(data) {
     '- type: "expense" 或 "income"\n' +
     '- category: 最匹配的分類名稱\n' +
     '- amount: 金額數字 (純數字)\n' +
-    '- note: 簡短備註描述\n' +
-    '- date: 日期 (YYYY-MM-DD 格式，如果沒有提到日期用 "' + today + '")\n' +
-    '- confidence: 解析信心度 (0到1之間的數字)\n\n' +
-    '注意:\n' +
-    '- 中文數字轉換："兩百五" = 250, "一千二" = 1200, "三萬" = 30000\n' +
-    '- 如果沒明確說是收入，預設為支出\n' +
-    '- "昨天" 表示 ' + getYesterday() + '\n' +
-    '- "前天" 表示 ' + getDayBefore() + '\n' +
-    '- 回傳純 JSON，不要任何其他文字';
+    '- note: 簡短描述\n' +
+    '- date: 日期 (YYYY-MM-DD 格式，如果沒有提到日期就用 ' + today + ')\n' +
+    '- confidence: 解析信心度 (0到1)\n\n' +
+    '回傳純 JSON，不要有任何額外文字。';
 
   try {
-    const parsed = callGemini(prompt, null);
+    const parsed = callGemini(prompt);
+    parsed.originalText = text;
     return { success: true, parsed: parsed };
   } catch (err) {
     return { error: 'AI 解析失敗: ' + err.message };
@@ -737,7 +715,6 @@ function callGemini(prompt, imageBase64) {
   const parts = [{ text: prompt }];
 
   if (imageBase64) {
-    // 移除 data:image/...;base64, 前綴
     const cleanBase64 = imageBase64.replace(
       /^data:image\/(png|jpeg|jpg|gif|webp);base64,/,
       ''
@@ -773,7 +750,6 @@ function callGemini(prompt, imageBase64) {
 
   const text = result.candidates[0].content.parts[0].text;
 
-  // 清理可能的 markdown 標記
   const cleaned = text
     .replace(/```json\s*/g, '')
     .replace(/```\s*/g, '')
@@ -821,21 +797,22 @@ function getSettings(params) {
   const userId = params.userId;
   if (!userId) return { error: '缺少 userId' };
 
-  const sheet = getSheet(SHEET_SETTINGS);
+  const userName = getUserNameById(userId);
+  if (!userName) return { error: '找不到用戶' };
+
+  const sheet = getUserSettingSheet(userName);
   const data = sheet.getDataRange().getValues();
   const settings = {};
 
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === userId) {
-      const key = data[i][1];
-      let value = data[i][2];
-      try {
-        value = JSON.parse(value);
-      } catch (e) {
-        // Keep as string
-      }
-      settings[key] = value;
+    const key = data[i][0];
+    let value = data[i][1];
+    try {
+      value = JSON.parse(value);
+    } catch (e) {
+      // Keep as string
     }
+    settings[key] = value;
   }
 
   return { success: true, settings: settings };
@@ -847,18 +824,21 @@ function updateSettings(data) {
   const value =
     typeof data.value === 'object' ? JSON.stringify(data.value) : data.value;
 
-  const sheet = getSheet(SHEET_SETTINGS);
+  const userName = getUserNameById(userId);
+  if (!userName) return { error: '找不到用戶' };
+
+  const sheet = getUserSettingSheet(userName);
   const allData = sheet.getDataRange().getValues();
 
   for (let i = 1; i < allData.length; i++) {
-    if (allData[i][0] === userId && allData[i][1] === key) {
-      sheet.getRange(i + 1, 3).setValue(value);
+    if (allData[i][0] === key) {
+      sheet.getRange(i + 1, 2).setValue(value);
       return { success: true };
     }
   }
 
   // 新增設定
-  sheet.appendRow([userId, key, value]);
+  sheet.appendRow([key, value]);
   return { success: true };
 }
 
@@ -887,16 +867,4 @@ function hashPin(pin) {
       return ('0' + (b & 0xff).toString(16)).slice(-2);
     })
     .join('');
-}
-
-function getYesterday() {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return Utilities.formatDate(d, 'Asia/Taipei', 'yyyy-MM-dd');
-}
-
-function getDayBefore() {
-  const d = new Date();
-  d.setDate(d.getDate() - 2);
-  return Utilities.formatDate(d, 'Asia/Taipei', 'yyyy-MM-dd');
 }
