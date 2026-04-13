@@ -420,18 +420,8 @@ function initSpeechRecognition() {
   return rec;
 }
 
-let lastVoiceToggle = 0;
-function toggleVoice(event) {
+function startVoice(event) {
   if (event && event.preventDefault) event.preventDefault();
-  const now = Date.now();
-  if (now - lastVoiceToggle < 500) return; // Prevent double trigger from touch+click
-  lastVoiceToggle = now;
-  
-  if (isRecording) stopVoice();
-  else startVoice();
-}
-
-function startVoice() {
   if (isRecording) return;
   if (!recognition) { recognition = initSpeechRecognition(); if (!recognition) return; }
   isRecording = true;
@@ -460,7 +450,8 @@ function startVoice() {
   try { recognition.start(); } catch (err) { stopVoiceUI(); }
 }
 
-function stopVoice() {
+function stopVoice(event) {
+  if (event && event.preventDefault) event.preventDefault();
   if (!isRecording || !recognition) return;
   try { recognition.stop(); } catch (err) {}
 }
@@ -468,7 +459,7 @@ function stopVoice() {
 function stopVoiceUI() {
   isRecording = false;
   document.getElementById('voice-btn').classList.remove('recording');
-  document.getElementById('voice-status').textContent = '點擊說話';
+  document.getElementById('voice-status').textContent = '按住說話';
 }
 
 async function parseVoiceInput(text) {
