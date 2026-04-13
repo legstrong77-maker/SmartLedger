@@ -1,0 +1,7 @@
+# 保護 GAS 後端程式碼（含 API Key），不推送至 GitHub
+gas/Code.gs
+
+# 系統檔案
+.DS_Store
+Thumbs.db
+models.json
