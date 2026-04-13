@@ -258,7 +258,6 @@ async function loadAllExpenses() {
 async function loadDashboard() {
   updateMonthLabel();
 
-  // 先用快取立即渲染
   const cacheKey = `sl_dash_${state.selectedMonth}`;
   const cached = localStorage.getItem(cacheKey);
   if (cached) {
@@ -680,7 +679,14 @@ function renderRecentGrouped(expenses) {
       const sign = exp.type === 'income' ? '+' : '-';
       const amtClass = exp.type === 'income' ? 'income' : 'expense';
       html += `
-        <div class="expense-item" onclick="openEditExpense('${exp.id}')">
+        <div class="expense-item" 
+             onmousedown="handlePressStart(event, '${exp.id}')" 
+             onmouseup="handlePressEnd()" 
+             onmouseleave="handlePressEnd()"
+             ontouchstart="handlePressStart(event, '${exp.id}')" 
+             ontouchend="handlePressEnd()" 
+             ontouchmove="handlePressMove()"
+             oncontextmenu="handleContextMenu(event, '${exp.id}')">
           <div class="expense-emoji" style="background:${catObj.color || '#555'}22">${catObj.emoji || '📌'}</div>
           <div class="expense-info">
             <div class="expense-category">${escapeHtml(exp.category)}</div>
@@ -766,7 +772,14 @@ function renderGroupedExpenseList(expenses, containerId) {
       const catObj = state.categories.find((c) => c.name === exp.category) || {};
       const sign = exp.type === 'income' ? '+' : '-';
       html += `
-        <div class="expense-item" onclick="openEditExpense('${exp.id}')">
+        <div class="expense-item" 
+             onmousedown="handlePressStart(event, '${exp.id}')" 
+             onmouseup="handlePressEnd()" 
+             onmouseleave="handlePressEnd()"
+             ontouchstart="handlePressStart(event, '${exp.id}')" 
+             ontouchend="handlePressEnd()" 
+             ontouchmove="handlePressMove()"
+             oncontextmenu="handleContextMenu(event, '${exp.id}')">
           <div class="expense-emoji" style="background:${catObj.color || '#555'}22">${catObj.emoji || '📌'}</div>
           <div class="expense-info">
             <div class="expense-category">${escapeHtml(exp.category)}</div>

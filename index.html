@@ -412,6 +412,20 @@
         </div>
       </div>
 
+      <!-- ===== Action Sheet Modal ===== -->
+      <div id="action-sheet" class="modal-overlay hidden" onclick="closeActionSheet(event)">
+        <div class="action-sheet-content glass-card">
+          <button class="sheet-btn" onclick="sheetEditExpense()">
+            <span style="font-size:1.2rem">✏️</span> 編輯記錄
+          </button>
+          <button class="sheet-btn text-danger" onclick="sheetDeleteExpense()">
+            <span style="font-size:1.2rem">🗑️</span> 刪除記錄
+          </button>
+          <div class="sheet-divider"></div>
+          <button class="sheet-btn cancel-btn" onclick="closeActionSheet(event)">取消</button>
+        </div>
+      </div>
+
       <!-- ===== Toast ===== -->
       <div id="toast" class="toast hidden"></div>
 
