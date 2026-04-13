@@ -420,7 +420,13 @@ function initSpeechRecognition() {
   return rec;
 }
 
-function toggleVoice() {
+let lastVoiceToggle = 0;
+function toggleVoice(event) {
+  if (event && event.preventDefault) event.preventDefault();
+  const now = Date.now();
+  if (now - lastVoiceToggle < 500) return; // Prevent double trigger from touch+click
+  lastVoiceToggle = now;
+  
   if (isRecording) stopVoice();
   else startVoice();
 }
