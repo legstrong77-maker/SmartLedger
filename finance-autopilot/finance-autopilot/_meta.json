@@ -1,0 +1,11 @@
+{
+  "owner": "agistack",
+  "slug": "finance-autopilot",
+  "displayName": "Finance Autopilot",
+  "latest": {
+    "version": "1.0.0",
+    "publishedAt": 1772911850723,
+    "commit": "https://github.com/openclaw/skills/commit/5cc1e82659f8522a7a8c66171d4b8ccbad37252e"
+  },
+  "history": []
+}

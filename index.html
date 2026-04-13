@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="description" content="個人智慧記帳 — 語音輸入、發票掃描、AI 自動分類" />
+    <meta name="theme-color" content="#0c0f14" />
+    <link rel="manifest" href="manifest.json" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>" />
+    <title>SmartLedger — 智慧記帳</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="index.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- ===== Setup Page ===== -->
+      <div id="setup-page" class="page page-center">
+        <div class="setup-container">
+          <div class="setup-logo">
+            <div class="logo-icon">💰</div>
+            <h1>SmartLedger</h1>
+            <p class="subtitle">智慧記帳</p>
+          </div>
+          <div class="glass-card">
+            <h2>連接後端服務</h2>
+            <p class="text-muted">請將 Google Apps Script 部署為網路應用程式，並貼上部署網址</p>
+            <div class="form-group">
+              <label for="setup-api-url">API 網址</label>
+              <input type="url" id="setup-api-url" placeholder="https://script.google.com/macros/s/.../exec" />
+            </div>
+            <button id="setup-connect-btn" class="btn btn-primary btn-block" onclick="handleSetup()">
+              <span class="btn-text">連接</span>
+              <span class="btn-loader hidden"></span>
+            </button>
+            <div id="setup-error" class="error-msg hidden"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Login Page ===== -->
+      <div id="login-page" class="page page-center hidden">
+        <div class="setup-container">
+          <div class="setup-logo">
+            <div class="logo-icon">💰</div>
+            <h1>SmartLedger</h1>
+            <p class="subtitle">智慧記帳</p>
+          </div>
+          <div class="glass-card">
+            <div class="login-tabs">
+              <button class="tab-btn active" data-tab="login" onclick="switchLoginTab('login')">登入</button>
+              <button class="tab-btn" data-tab="register" onclick="switchLoginTab('register')">註冊</button>
+            </div>
+            <div class="form-group">
+              <label for="login-name">使用者名稱</label>
+              <input type="text" id="login-name" placeholder="輸入名稱" autocomplete="username" />
+            </div>
+            <div class="form-group">
+              <label for="login-pin">密碼</label>
+              <input type="password" id="login-pin" placeholder="至少 4 位" autocomplete="current-password" />
+            </div>
+            <button id="login-btn" class="btn btn-primary btn-block" onclick="handleAuth()">
+              <span class="btn-text">登入</span>
+              <span class="btn-loader hidden"></span>
+            </button>
+            <div id="login-error" class="error-msg hidden"></div>
+          </div>
+          <button class="btn-link" onclick="resetApiUrl()">更換後端連結</button>
+        </div>
+      </div>
+
+      <!-- ===== Main App ===== -->
+      <div id="main-app" class="hidden">
+        <header id="app-header">
+          <div class="header-left">
+            <span class="header-greeting" id="header-greeting">嗨，</span>
+          </div>
+          <div class="header-right">
+            <button class="icon-btn" id="header-theme-toggle" onclick="toggleTheme()" title="切換主題">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <main id="page-container">
+          <!-- ===== Record Page ===== -->
+          <div id="record-page" class="page">
+            <div class="record-hero">
+              <div class="voice-section">
+                <button id="voice-btn" class="voice-btn" onmousedown="startVoice()" onmouseup="stopVoice()" ontouchstart="startVoice()" ontouchend="stopVoice()">
+                  <div class="voice-ring ring-1"></div>
+                  <div class="voice-ring ring-2"></div>
+                  <div class="voice-ring ring-3"></div>
+                  <svg class="mic-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                </button>
+                <p class="voice-status" id="voice-status">按住說話</p>
+                <p class="voice-result" id="voice-result"></p>
+              </div>
+            </div>
+
+            <!-- AI 解析結果 -->
+            <div id="ai-result-card" class="glass-card ai-result hidden">
+              <div class="ai-result-header">
+                <span class="ai-badge">✨ AI 解析結果</span>
+                <button class="btn-sm btn-ghost" onclick="clearAiResult()">✕</button>
+              </div>
+              <div id="ai-result-content"></div>
+              <div class="ai-result-actions">
+                <button class="btn btn-primary" onclick="confirmAiResult()">確認記帳</button>
+                <button class="btn btn-ghost" onclick="editAiResult()">手動修改</button>
+              </div>
+            </div>
+
+            <!-- 拍照/上傳 -->
+            <div class="action-row">
+              <button class="action-btn" onclick="capturePhoto()">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                <span>拍照 / 上傳發票</span>
+              </button>
+              <input type="file" id="photo-input" accept="image/*" capture="environment" class="hidden" onchange="handlePhotoSelected(event)" />
+            </div>
+
+            <!-- 分隔線 -->
+            <div class="divider"><span>或手動輸入</span></div>
+
+            <!-- 手動輸入表單 -->
+            <div class="glass-card manual-form">
+              <div class="type-toggle">
+                <button class="toggle-btn active" data-type="expense" onclick="setRecordType('expense')">支出</button>
+                <button class="toggle-btn" data-type="income" onclick="setRecordType('income')">收入</button>
+              </div>
+
+              <div class="form-group">
+                <label>分類</label>
+                <div id="category-grid" class="category-grid"></div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label for="manual-amount">金額</label>
+                  <div class="input-with-prefix">
+                    <span class="input-prefix">$</span>
+                    <input type="number" id="manual-amount" placeholder="0" inputmode="decimal" />
+                  </div>
+                </div>
+                <div class="form-group" style="width:100px">
+                  <label for="manual-currency">幣別</label>
+                  <select id="manual-currency">
+                    <option value="TWD" selected>TWD</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="manual-note">備註</label>
+                <input type="text" id="manual-note" placeholder="簡短描述支出內容" />
+              </div>
+
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label for="manual-date">日期</label>
+                  <input type="date" id="manual-date" />
+                </div>
+                <div class="form-group flex-1">
+                  <label for="manual-time">時間</label>
+                  <input type="time" id="manual-time" />
+                </div>
+              </div>
+
+              <button id="manual-submit-btn" class="btn btn-primary btn-block" onclick="submitManualExpense()">
+                <span class="btn-text">記帳</span>
+                <span class="btn-loader hidden"></span>
+              </button>
+            </div>
+
+            <!-- 最近紀錄 -->
+            <div class="section-header">
+              <h3>最近紀錄</h3>
+              <button class="btn-link" onclick="navigate('history')">查看全部</button>
+            </div>
+            <div id="recent-expenses" class="expense-list"></div>
+          </div>
+
+          <!-- ===== Dashboard Page ===== -->
+          <div id="dashboard-page" class="page hidden">
+            <div class="dashboard-month-selector">
+              <button class="icon-btn" onclick="changeMonth(-1)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+              <span id="dashboard-month-label" class="month-label"></span>
+              <button class="icon-btn" onclick="changeMonth(1)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+            </div>
+
+            <div id="dashboard-loading" class="dashboard-loading hidden">
+              <div class="dash-loading-bar"></div>
+            </div>
+            <div class="summary-cards">
+              <div class="summary-card expense-card">
+                <span class="summary-label">本月支出</span>
+                <span class="summary-value" id="summary-expense">$0</span>
+              </div>
+              <div class="summary-card income-card">
+                <span class="summary-label">本月收入</span>
+                <span class="summary-value" id="summary-income">$0</span>
+              </div>
+              <div class="summary-card net-card">
+                <span class="summary-label">淨額</span>
+                <span class="summary-value" id="summary-net">$0</span>
+              </div>
+              <div class="summary-card count-card">
+                <span class="summary-label">記帳筆數</span>
+                <span class="summary-value" id="summary-count">0</span>
+              </div>
+            </div>
+
+            <div class="glass-card chart-card">
+              <h3>每日支出趨勢</h3>
+              <div class="chart-container">
+                <canvas id="daily-chart"></canvas>
+              </div>
+            </div>
+
+            <div class="glass-card chart-card">
+              <h3>分類佔比</h3>
+              <div class="chart-container chart-pie-container">
+                <canvas id="category-chart"></canvas>
+              </div>
+            </div>
+
+            <div class="glass-card">
+              <h3>分類支出排行</h3>
+              <div id="category-breakdown"></div>
+            </div>
+
+            <div class="glass-card">
+              <h3>最大支出 TOP 5</h3>
+              <div id="top-expenses"></div>
+            </div>
+          </div>
+
+          <!-- ===== History Page ===== -->
+          <div id="history-page" class="page hidden">
+            <div class="search-bar">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="history-search" placeholder="搜尋備註..." oninput="filterHistory()" />
+              <button class="icon-btn" onclick="toggleHistoryFilter()">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              </button>
+            </div>
+
+            <div id="history-filters" class="filter-panel hidden">
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label for="filter-month">月份</label>
+                  <input type="month" id="filter-month" onchange="loadAllExpenses()" />
+                </div>
+                <div class="form-group flex-1">
+                  <label for="filter-type">類型</label>
+                  <select id="filter-type" onchange="filterHistory()">
+                    <option value="">全部</option>
+                    <option value="expense">支出</option>
+                    <option value="income">收入</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="filter-category">分類</label>
+                <select id="filter-category" onchange="filterHistory()">
+                  <option value="">全部分類</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="history-list" class="expense-list"></div>
+            <div id="history-empty" class="empty-state hidden">
+              <span class="empty-icon">📭</span>
+              <p>沒有找到任何記錄</p>
+            </div>
+          </div>
+
+          <!-- ===== Settings Page ===== -->
+          <div id="settings-page" class="page hidden">
+            <div class="glass-card">
+              <div class="settings-user">
+                <div class="user-avatar" id="settings-avatar">👤</div>
+                <div>
+                  <div class="user-name" id="settings-username"></div>
+                  <div class="text-muted text-sm">管理你的記帳設定</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="glass-card">
+              <div class="settings-section-header">
+                <h3>支出分類</h3>
+                <button class="btn-sm btn-primary" onclick="showAddCategory('expense')">+ 新增</button>
+              </div>
+              <div id="settings-expense-categories" class="category-list"></div>
+            </div>
+
+            <div class="glass-card">
+              <div class="settings-section-header">
+                <h3>收入分類</h3>
+                <button class="btn-sm btn-primary" onclick="showAddCategory('income')">+ 新增</button>
+              </div>
+              <div id="settings-income-categories" class="category-list"></div>
+            </div>
+
+            <div class="glass-card">
+              <h3>幣別設定</h3>
+              <div class="currency-toggles" id="currency-toggles"></div>
+            </div>
+
+            <div class="glass-card">
+              <h3>預算設定</h3>
+              <p class="text-muted text-sm">設定每月各分類的支出上限</p>
+              <div id="budget-settings"></div>
+            </div>
+
+            <div class="glass-card">
+              <button class="btn btn-danger btn-block" onclick="handleLogout()">登出</button>
+            </div>
+          </div>
+        </main>
+
+        <!-- ===== Bottom Navigation ===== -->
+        <nav id="bottom-nav">
+          <button class="nav-btn active" data-page="record" onclick="navigate('record')">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            <span>記帳</span>
+          </button>
+          <button class="nav-btn" data-page="dashboard" onclick="navigate('dashboard')">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            <span>儀表板</span>
+          </button>
+          <button class="nav-btn" data-page="history" onclick="navigate('history')">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span>歷史</span>
+          </button>
+          <button class="nav-btn" data-page="settings" onclick="navigate('settings')">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span>設定</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- ===== 新增分類 Modal ===== -->
+      <div id="add-category-modal" class="modal-overlay hidden" onclick="closeModalOnOverlay(event)">
+        <div class="modal glass-card">
+          <h3 id="add-category-title">新增分類</h3>
+          <div class="form-group">
+            <label for="new-cat-name">名稱</label>
+            <input type="text" id="new-cat-name" placeholder="分類名稱" />
+          </div>
+          <div class="form-group">
+            <label for="new-cat-emoji">圖示 (Emoji)</label>
+            <input type="text" id="new-cat-emoji" placeholder="🏷️" maxlength="4" />
+          </div>
+          <div class="form-group">
+            <label for="new-cat-color">顏色</label>
+            <input type="color" id="new-cat-color" value="#95A5A6" />
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+            <button class="btn btn-primary" onclick="submitNewCategory()">確定</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 編輯 Modal ===== -->
+      <div id="edit-expense-modal" class="modal-overlay hidden" onclick="closeModalOnOverlay(event)">
+        <div class="modal glass-card">
+          <h3>編輯記錄</h3>
+          <input type="hidden" id="edit-id" />
+          <div class="type-toggle">
+            <button class="toggle-btn active" data-type="expense" onclick="setEditType('expense')">支出</button>
+            <button class="toggle-btn" data-type="income" onclick="setEditType('income')">收入</button>
+          </div>
+          <div class="form-group">
+            <label>分類</label>
+            <div id="edit-category-grid" class="category-grid"></div>
+          </div>
+          <div class="form-group">
+            <label for="edit-amount">金額</label>
+            <input type="number" id="edit-amount" inputmode="decimal" />
+          </div>
+          <div class="form-group">
+            <label for="edit-note">備註</label>
+            <input type="text" id="edit-note" />
+          </div>
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="edit-date">日期</label>
+              <input type="date" id="edit-date" />
+            </div>
+            <div class="form-group flex-1">
+              <label for="edit-time">時間</label>
+              <input type="time" id="edit-time" />
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-danger" onclick="deleteCurrentExpense()">刪除</button>
+            <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+            <button class="btn btn-primary" onclick="saveEditExpense()">儲存</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== Toast ===== -->
+      <div id="toast" class="toast hidden"></div>
+
+      <!-- ===== Loading Overlay ===== -->
+      <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="loading-spinner"></div>
+        <p id="loading-text">處理中...</p>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
