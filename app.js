@@ -427,6 +427,7 @@ function initSpeechRecognition() {
 // Pre-init for better gesture handling
 recognition = initSpeechRecognition();
 
+let voiceRetryCount = 0;
 function startVoice(event) {
   if (event && event.preventDefault) event.preventDefault();
   if (isRecording) return;
@@ -438,7 +439,34 @@ function startVoice(event) {
        return;
      }
   }
-  
+
+  // Setup/Reset error handler with retry logic
+  recognition.onerror = (event) => {
+    stopVoiceUI();
+    console.error('Speech error:', event.error);
+    
+    if (event.error === 'service-not-allowed' && voiceRetryCount < 1) {
+      voiceRetryCount++;
+      console.log('Attempting voice service retry...');
+      setTimeout(() => startVoice(), 100);
+      return;
+    }
+    
+    voiceRetryCount = 0; // reset
+    const errorMap = {
+      'not-allowed': '請允許麥克風權限以使用語音記帳',
+      'service-not-allowed': '語音服務被阻擋 (請檢查：1.是否開啟聽寫功能 2.關閉無痕模式 3.HTTPS連線)',
+      'network': '網路連線不穩定，語音辨識失敗',
+      'no-speech': '沒聽到聲音，請再試一次'
+    };
+    const msg = errorMap[event.error] || '語音辨識錯誤: ' + event.error;
+    showToast(msg);
+    
+    if (window.location.protocol !== 'https:') {
+      showToast('⚠️ 語音功能需要 HTTPS 加密連線才能運作');
+    }
+  };
+
   isRecording = true;
   const btn = document.getElementById('voice-btn');
   const status = document.getElementById('voice-status');
@@ -1295,7 +1323,7 @@ function handlePressStart(event, id) {
   pressTimer = setTimeout(() => {
     pressTimer = null;
     openActionSheet(id);
-  }, 450); // 450ms long press
+  }, 300); // Shorter for snappier feel on mobile
 }
 
 function handlePressEnd() {
