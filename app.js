@@ -1257,3 +1257,78 @@ function escapeHtml(text) {
   div.textContent = text;
   return div.innerHTML;
 }
+
+// ===== Action Sheet / Long Press =====
+let pressTimer;
+let currentActionId = null;
+
+function handlePressStart(event, id) {
+  if (event.button === 2) return; // ignore right click
+  if (pressTimer) clearTimeout(pressTimer);
+  
+  pressTimer = setTimeout(() => {
+    pressTimer = null;
+    openActionSheet(id);
+  }, 450); // 450ms long press
+}
+
+function handlePressEnd() {
+  if (pressTimer) {
+    clearTimeout(pressTimer);
+    pressTimer = null;
+  }
+}
+
+function handlePressMove() {
+  if (pressTimer) {
+    clearTimeout(pressTimer);
+    pressTimer = null;
+  }
+}
+
+function handleContextMenu(event, id) {
+  event.preventDefault();
+  handlePressEnd(); // Ensure timer doesn't fire doubly
+  openActionSheet(id);
+}
+
+function openActionSheet(id) {
+  if (id.startsWith('temp_')) {
+    showToast('此筆正在同步中...');
+    return;
+  }
+  if (navigator.vibrate) navigator.vibrate(50);
+  currentActionId = id;
+  const sheet = document.getElementById('action-sheet');
+  sheet.classList.remove('hidden');
+  setTimeout(() => {
+    const content = sheet.querySelector('.action-sheet-content');
+    if (content) content.classList.add('slide-up');
+  }, 10);
+}
+
+function closeActionSheet(e) {
+  if (e && e.target !== e.currentTarget && !e.currentTarget.classList.contains('cancel-btn')) return;
+  const sheet = document.getElementById('action-sheet');
+  const content = sheet.querySelector('.action-sheet-content');
+  if (content) content.classList.remove('slide-up');
+  setTimeout(() => {
+    sheet.classList.add('hidden');
+    currentActionId = null;
+  }, 300);
+}
+
+function sheetEditExpense() {
+  if (currentActionId) {
+    openEditExpense(currentActionId);
+    closeActionSheet();
+  }
+}
+
+function sheetDeleteExpense() {
+  if (currentActionId) {
+    document.getElementById('edit-id').value = currentActionId;
+    deleteCurrentExpense();
+    closeActionSheet();
+  }
+}
