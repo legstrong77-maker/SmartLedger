@@ -404,9 +404,13 @@ function resetForm() {
   if (preview) preview.remove();
 }
 
-// ===== Voice Input =====
+// ===== Voice Input (雙模系統) =====
 let recognition = null;
 let isRecording = false;
+let useMediaRecorder = false; // 自動切換旗標
+let mediaRecorder = null;
+let audioChunks = [];
+let voiceRetryCount = 0;
 
 function initSpeechRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -418,101 +422,152 @@ function initSpeechRecognition() {
     rec.continuous = false;
     rec.maxAlternatives = 1;
     return rec;
-  } catch (e) {
-    console.error('Speech recognition init failed:', e);
-    return null;
-  }
+  } catch (e) { return null; }
 }
 
-// Pre-init for better gesture handling
+// 預載語音引擎
 recognition = initSpeechRecognition();
 
-let voiceRetryCount = 0;
 function startVoice(event) {
   if (event && event.preventDefault) event.preventDefault();
   if (isRecording) return;
-  
-  if (!recognition) {
-     recognition = initSpeechRecognition();
-     if (!recognition) {
-       showToast('你的瀏覽器不支援語音輸入，請使用 Chrome 或 Safari');
-       return;
-     }
+
+  // 已確認需要備援模式，直接錄音
+  if (useMediaRecorder) {
+    startMediaRecorder();
+    return;
   }
 
-  // Setup/Reset error handler with retry logic
-  recognition.onerror = (event) => {
+  // 嘗試原生語音識別
+  if (!recognition) {
+    recognition = initSpeechRecognition();
+  }
+
+  if (!recognition) {
+    // 瀏覽器不支援，切換備援
+    useMediaRecorder = true;
+    startMediaRecorder();
+    return;
+  }
+
+  recognition.onresult = (e) => {
+    let t = '';
+    for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+    document.getElementById('voice-result').textContent = t;
+  };
+
+  recognition.onend = () => {
     stopVoiceUI();
-    console.error('Speech error:', event.error);
-    
-    if (event.error === 'service-not-allowed' && voiceRetryCount < 1) {
+    const text = document.getElementById('voice-result').textContent.trim();
+    if (text) parseVoiceInput(text);
+  };
+
+  recognition.onerror = (e) => {
+    console.error('Speech error:', e.error);
+    if ((e.error === 'service-not-allowed' || e.error === 'not-allowed') && voiceRetryCount < 1) {
       voiceRetryCount++;
-      console.log('Attempting voice service retry...');
-      setTimeout(() => startVoice(), 100);
+      stopVoiceUI();
+      // 自動切換到備援模式
+      useMediaRecorder = true;
+      showToast('切換備用錄音模式，請再按住說話');
       return;
     }
-    
-    voiceRetryCount = 0; // reset
-    const errorMap = {
-      'not-allowed': '請允許麥克風權限以使用語音記帳',
-      'service-not-allowed': '語音服務被阻擋 (請檢查：1.是否開啟聽寫功能 2.關閉無痕模式 3.HTTPS連線)',
-      'network': '網路連線不穩定，語音辨識失敗',
-      'no-speech': '沒聽到聲音，請再試一次'
-    };
-    const msg = errorMap[event.error] || '語音辨識錯誤: ' + event.error;
-    showToast(msg);
-    
-    if (window.location.protocol !== 'https:') {
-      showToast('⚠️ 語音功能需要 HTTPS 加密連線才能運作');
-    }
+    voiceRetryCount = 0;
+    stopVoiceUI();
+    if (e.error === 'no-speech') { showToast('沒聽到聲音，請再試一次'); return; }
+    if (e.error !== 'aborted') showToast('語音錯誤，已切換備用模式');
+    useMediaRecorder = true;
   };
 
   isRecording = true;
-  const btn = document.getElementById('voice-btn');
-  const status = document.getElementById('voice-status');
-  const result = document.getElementById('voice-result');
-  btn.classList.add('recording');
-  status.textContent = '正在聆聽...';
-  result.textContent = '';
+  document.getElementById('voice-btn').classList.add('recording');
+  document.getElementById('voice-status').textContent = '正在聆聽...';
+  document.getElementById('voice-result').textContent = '';
 
-  recognition.onresult = (event) => {
-    let t = '';
-    for (let i = 0; i < event.results.length; i++) t += event.results[i][0].transcript;
-    result.textContent = t;
-  };
-  recognition.onend = () => {
+  try {
+    recognition.start();
+  } catch (err) {
     stopVoiceUI();
-    const text = result.textContent.trim();
-    if (text) parseVoiceInput(text);
-  };
-  recognition.onerror = (event) => {
-    stopVoiceUI();
-    const errorMap = {
-      'not-allowed': '請允許麥克風權限以使用語音記帳',
-      'service-not-allowed': '語音服務被阻擋 (請檢查：1.是否開啟聽寫功能 2.關閉無痕模式 3.HTTPS連線)',
-      'network': '網路連線不穩定，語音辨識失敗',
-      'no-speech': '沒聽到聲音，請再試一次'
-    };
-    const msg = errorMap[event.error] || '語音辨識錯誤: ' + event.error;
-    showToast(msg);
-    
-    if (window.location.protocol !== 'https:') {
-      showToast('⚠️ 語音功能需要 HTTPS 加密連線才能運作');
-    }
-  };
-  try { recognition.start(); } catch (err) { stopVoiceUI(); }
+    useMediaRecorder = true;
+    startMediaRecorder();
+  }
+}
+
+function startMediaRecorder() {
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then((stream) => {
+      isRecording = true;
+      audioChunks = [];
+      document.getElementById('voice-btn').classList.add('recording');
+      document.getElementById('voice-status').textContent = '🔴 錄音中，放開送出';
+      document.getElementById('voice-result').textContent = '';
+
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        processAudioBlob(blob);
+      };
+      mediaRecorder.start();
+    })
+    .catch(() => {
+      showToast('無法取得麥克風，請確認瀏覽器權限');
+      stopVoiceUI();
+    });
 }
 
 function stopVoice(event) {
   if (event && event.preventDefault) event.preventDefault();
-  if (!isRecording || !recognition) return;
+  if (!isRecording) return;
+
+  if (useMediaRecorder) {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+    }
+    stopVoiceUI();
+    return;
+  }
+
+  if (!recognition) return;
   try { recognition.stop(); } catch (err) {}
 }
 
 function stopVoiceUI() {
   isRecording = false;
-  document.getElementById('voice-btn').classList.remove('recording');
-  document.getElementById('voice-status').textContent = '按住說話';
+  const btn = document.getElementById('voice-btn');
+  const status = document.getElementById('voice-status');
+  if (btn) btn.classList.remove('recording');
+  if (status) status.textContent = useMediaRecorder ? '按住錄音' : '按住說話';
+}
+
+async function processAudioBlob(blob) {
+  const reader = new FileReader();
+  reader.readAsDataURL(blob);
+  reader.onloadend = async () => {
+    const base64 = reader.result;
+    showLoading('AI 正在分析語音...');
+    try {
+      const res = await apiPost({
+        action: 'processAudio',
+        userId: state.user.id,
+        audioBase64: base64
+      });
+      hideLoading();
+      if (res.success && res.parsed) {
+        state.aiResult = { ...res.parsed, originalText: res.parsed.originalText || '' };
+        showAiResult(res.parsed);
+        if (res.parsed.originalText) {
+          document.getElementById('voice-result').textContent = '聽到：' + res.parsed.originalText;
+        }
+      } else {
+        showToast(res.error || '語音解析失敗，請重試');
+      }
+    } catch (err) {
+      hideLoading();
+      showToast('網路錯誤，請稍後重試');
+    }
+  };
 }
 
 async function parseVoiceInput(text) {
